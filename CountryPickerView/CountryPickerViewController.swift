@@ -48,21 +48,40 @@ extension CountryPickerViewController {
             let countriesArray = countryPickerView.usableCountries
             let locale = dataSource.localeForCountryNameInList
             
-            var groupedData = Dictionary<String, [Country]>(grouping: countriesArray) {
-                let name = $0.localizedName(locale) ?? $0.name
-                return String(name.capitalized[name.startIndex])
+            // 自定义中文拼音分组逻辑
+            var groupedData = [String: [Country]]()
+            
+            // 步骤1: 将国家按中文拼音首字母分组
+            for country in countriesArray {
+                // 获取中文国家名（需确保locale为中文）
+                let chineseName = country.localizedName(locale) ?? country.name
+                
+                // 转换为拼音并取首字母
+                let pinyin = chineseName.transformToPinyin()
+                guard let firstLetter = pinyin.first else { continue }
+                let groupKey = String(firstLetter).uppercased()
+                
+                // 添加到分组字典
+                if groupedData[groupKey] == nil {
+                    groupedData[groupKey] = [Country]()
+                }
+                groupedData[groupKey]?.append(country)
             }
-            groupedData.forEach{ key, value in
-                groupedData[key] = value.sorted(by: { (lhs, rhs) -> Bool in
-                    return lhs.localizedName(locale) ?? lhs.name < rhs.localizedName(locale) ?? rhs.name
-                })
+            
+            // 步骤2: 对每个分组内的国家按中文拼音排序
+            groupedData.forEach { key, value in
+                groupedData[key] = value.sorted { lhs, rhs in
+                    let lhsName = lhs.localizedName(locale) ?? lhs.name
+                    let rhsName = rhs.localizedName(locale) ?? rhs.name
+                    return lhsName.compare(rhsName, locale: locale) == .orderedAscending
+                }
             }
             
             countries = groupedData
             sectionsTitles = groupedData.keys.sorted()
         }
         
-        // Add preferred section if data is available
+        // 添加偏好国家分组（原逻辑不变）
         if hasPreferredSection, let preferredTitle = dataSource.preferredCountriesSectionTitle {
             sectionsTitles.insert(preferredTitle, at: sectionsTitles.startIndex)
             countries[preferredTitle] = dataSource.preferredCountries
@@ -211,26 +230,34 @@ extension CountryPickerViewController {
 extension CountryPickerViewController: UISearchResultsUpdating {
     public func updateSearchResults(for searchController: UISearchController) {
         isSearchMode = false
-        if let text = searchController.searchBar.text, text.count > 0 {
-            isSearchMode = true
-            searchResults.removeAll()
-            
-            var indexArray = [Country]()
-            
-            if showOnlyPreferredSection && hasPreferredSection,
-                let array = countries[dataSource.preferredCountriesSectionTitle!] {
-                indexArray = array
-            } else if let array = countries[String(text.capitalized[text.startIndex])] {
+        guard let text = searchController.searchBar.text, text.count > 0 else {
+            tableView.reloadData()
+            return
+        }
+        isSearchMode = true
+        
+        let query = text.lowercased()
+        var indexArray = [Country]()
+        
+        // 判断输入是否包含中文字符
+        if query.range(of: "[\\u4e00-\\u9fa5]", options: .regularExpression) != nil {
+            // 输入包含中文，则遍历所有国家
+            indexArray = countryPickerView.usableCountries
+        } else {
+            // 输入不包含中文，假设是拼音，则从分组字典中取出对应组
+            if let array = countries[String(text.capitalized[text.startIndex])] {
                 indexArray = array
             }
-
-            searchResults.append(contentsOf: indexArray.filter({
-                let name = ($0.localizedName(dataSource.localeForCountryNameInList) ?? $0.name).lowercased()
-                let code = $0.code.lowercased()
-                let query = text.lowercased()
-                return name.hasPrefix(query) || (dataSource.showCountryCodeInList && code.hasPrefix(query))
-            }))
         }
+        
+        // 根据中文和拼音都进行匹配
+        searchResults = indexArray.filter { country in
+            let localized = (country.localizedName(dataSource.localeForCountryNameInList) ?? country.name)
+            let pinyin = localized.transformToPinyin().lowercased()
+            return localized.lowercased().hasPrefix(query) || pinyin.hasPrefix(query) ||
+                (dataSource.showCountryCodeInList && country.code.lowercased().hasPrefix(query))
+        }
+        
         tableView.reloadData()
     }
 }
@@ -254,11 +281,9 @@ extension CountryPickerViewController: UISearchBarDelegate {
 // Fixes an issue where the search bar goes off screen sometimes.
 extension CountryPickerViewController: UISearchControllerDelegate {
     public func willPresentSearchController(_ searchController: UISearchController) {
-        self.navigationController?.navigationBar.isTranslucent = true
     }
     
     public func willDismissSearchController(_ searchController: UISearchController) {
-        self.navigationController?.navigationBar.isTranslucent = false
     }
 }
 
@@ -354,5 +379,19 @@ class CountryPickerViewDataSourceInternal: CountryPickerViewDataSource {
     
     var excludedCountries: [Country] {
         return view.dataSource?.excludedCountries(in: view) ?? excludedCountries(in: view)
+    }
+}
+
+// MARK: - 拼音转换扩展
+extension String {
+    /// 将中文字符串转换为无空格拼音（大写字母开头）
+    func transformToPinyin() -> String {
+        let mutableString = NSMutableString(string: self)
+        // 转换为带音标的拼音
+        CFStringTransform(mutableString, nil, kCFStringTransformToLatin, false)
+        // 去除音标
+        CFStringTransform(mutableString, nil, kCFStringTransformStripCombiningMarks, false)
+        // 转换为大写无空格字符串（如"ZHONGGUO"）
+        return mutableString.capitalized.replacingOccurrences(of: " ", with: "")
     }
 }

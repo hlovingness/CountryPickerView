@@ -7,6 +7,8 @@
 [![SPM compatible](https://img.shields.io/badge/SPM-compatible-4BC51D.svg?style=flat)](https://swift.org/package-manager)
 [![License](https://img.shields.io/badge/License-MIT-8D6E63.svg)](https://github.com/kizitonwose/CountryPickerView/blob/master/LICENSE.md)
 
+修改为适合中国人习惯的 中文列表，英文索引
+
 CountryPickerView is a simple, customizable view for selecting countries in iOS apps.
 
 You can clone/download the repository and run the [demo project](https://github.com/kizitonwose/CountryPickerView/tree/master/CountryPickerViewDemo) to see CountryPickerView in action. First run `pod install` from the CountryPickerViewDemo directory.
